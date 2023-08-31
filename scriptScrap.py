@@ -1,3 +1,13 @@
+''' 
+Dependências, só instalar na primeira vez
+!pip install selenium
+!pip install bs4
+!pip install openpyxl
+'''
+
+import tkinter as tk
+from tkinter import ttk
+from tkinter import messagebox
 from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
@@ -7,6 +17,7 @@ from openpyxl import Workbook, load_workbook
 from openpyxl.worksheet.hyperlink import Hyperlink
 from bs4 import BeautifulSoup
 import time
+import re
 
 def initialize_driver():
     chrome_options = Options()
@@ -38,72 +49,109 @@ def extract_textarea_value(driver, css_selector):
     textarea_element = WebDriverWait(driver, 10).until(EC.visibility_of_element_located((By.CSS_SELECTOR, css_selector)))
     return textarea_element.get_attribute('value')
 
-def main():
-    response = 's'
-    while response == 's':
-        print('Digite a URL do processo:')
-        url = input()
+def is_valid_url(url):
+    pattern = r'https://protocolo\.ufes\.br/#/documentos/\d+/'
+    return re.match(pattern, url) is not None
 
-        # Abre a página do processo em background
-        driver = initialize_driver()
-        content = get_page_content(driver, url)
-        tipo_documento, numero_processo = extract_process_info(content)
+def submit_button_clicked():
+    url = url_entry.get()
 
-        interessado_text = extract_textarea_value(driver, "textarea[aria-label='Interessado']")
-        resumo_text = extract_textarea_value(driver, "textarea[aria-label='Resumo']")
+    if not url:
+        messagebox.showerror("Erro", "Por favor, insira a URL do processo.")
+        return
+    elif not (is_valid_url(url)):
+        messagebox.showerror("Erro", "A Url está errada.")
+        return
 
-        # Fecha a página
-        driver.quit()
+    driver = initialize_driver()
+    content = get_page_content(driver, url)
+    tipo_documento, numero_processo = extract_process_info(content)
 
-        # Abre a página e tramitações do processo
-        driver = initialize_driver()
-        url_tramitacoes = url + 'tramitacoes'
-        content = get_page_content(driver, url_tramitacoes)
+    interessado_text = extract_textarea_value(driver, "textarea[aria-label='Interessado']")
+    resumo_text = extract_textarea_value(driver, "textarea[aria-label='Resumo']")
 
-        # Clina no elemento da página para que o conteúdo do processo apareça
-        tr_element = driver.find_element(By.CLASS_NAME, 'pointer')
-        tr_element.click()
+    driver.quit()
 
-        despacho_text = extract_textarea_value(driver, "textarea[aria-label='Despacho']")
+    # Abre a página e tramitações do processo
+    driver = initialize_driver()
+    url_tramitacoes = url + 'tramitacoes'
+    content = get_page_content(driver, url_tramitacoes)
 
-        # Fecha a página
-        driver.quit()
+    # Clina no elemento da página para que o conteúdo do processo apareça
+    tr_element = driver.find_element(By.CLASS_NAME, 'pointer')
+    tr_element.click()
 
-        despacho = despacho_text.split('\n\n')[0]
+    despacho_text = extract_textarea_value(driver, "textarea[aria-label='Despacho']")
 
-        dados = [
-            {
-                "Tipo de documento": tipo_documento,
-                "Número do processo": numero_processo,
-                "Interessado": interessado_text,
-                "Resumo": resumo_text,
-                "Despacho": despacho
-            }
-        ]
+    # Fecha a página
+    driver.quit()
 
-        file_name = "processos-lepisma.xlsx"
+    despacho = despacho_text.split('\n\n')[0]
 
-        try:
-            workbook = load_workbook(file_name)
-            sheet = workbook.active
-        except FileNotFoundError:
-            workbook = Workbook()
-            sheet = workbook.active
-            sheet.append(["Tipo de documento", "Número do processo", "Interessado", "Resumo", "Despacho"])
+    dados = [
+        {
+            "Tipo de documento": tipo_documento,
+            "Número do processo": numero_processo,
+            "Interessado": interessado_text,
+            "Resumo": resumo_text,
+            "Despacho": despacho
+        }
+    ]
 
-        for dado in dados:
-            hyperlink = Hyperlink(ref=f"A{sheet.max_row + 1}", target=url)
-            sheet.cell(row=sheet.max_row + 1, column=1, value=dado["Tipo de documento"]).hyperlink = hyperlink
-            sheet.cell(row=sheet.max_row, column=2, value=dado["Número do processo"])
-            sheet.cell(row=sheet.max_row, column=3, value=dado["Interessado"])
-            sheet.cell(row=sheet.max_row, column=4, value=dado["Resumo"])
-            sheet.cell(row=sheet.max_row, column=5, value=dado["Despacho"])
+    file_name = "processos-lepisma.xlsx"
 
-        workbook.save(filename=file_name)
+    try:
+        workbook = load_workbook(file_name)
+        sheet = workbook.active
+    except FileNotFoundError:
+        workbook = Workbook()
+        sheet = workbook.active
+        sheet.append(["Tipo de documento", "Número do processo", "Interessado", "Resumo", "Despacho"])
 
-        print('Dados processados.')
-        print('Deseja continuar? (s/n)')
-        response = input()
+    for dado in dados:
+        hyperlink = Hyperlink(ref=f"A{sheet.max_row + 1}", target=url)
+        sheet.cell(row=sheet.max_row + 1, column=1, value=dado["Tipo de documento"]).hyperlink = hyperlink
+        sheet.cell(row=sheet.max_row, column=2, value=dado["Número do processo"])
+        sheet.cell(row=sheet.max_row, column=3, value=dado["Interessado"])
+        sheet.cell(row=sheet.max_row, column=4, value=dado["Resumo"])
+        sheet.cell(row=sheet.max_row, column=5, value=dado["Despacho"])
 
-if __name__ == "__main__":
-    main()
+    workbook.save(filename=file_name)
+
+    url_entry.delete(0, tk.END)
+    messagebox.showinfo("Sucesso", "Dados processados com sucesso.")
+
+
+app = tk.Tk()
+app.title("Coletor de Dados")
+
+# Ajusta o tamanho da janela
+app.geometry("300x200")  # Largura x Altura
+
+# Centraliza a janela na tela
+app.update_idletasks()
+width = app.winfo_width()
+height = app.winfo_height()
+x = (app.winfo_screenwidth() // 2) - (width // 2)
+y = (app.winfo_screenheight() // 2) - (height // 2)
+app.geometry(f"{width}x{height}+{x}+{y}")
+
+# Cria um frame central para os widgets
+frame = tk.Frame(app)
+frame.pack(expand=True)
+
+# Cria um campo de entrada para a URL
+url_label = tk.Label(frame, text="URL do Processo:")
+url_label.pack(pady=5)
+
+url_entry = tk.Entry(frame, width=40)
+url_entry.pack(pady=10)
+
+style = ttk.Style()
+style.configure("Black.TButton", background="black")
+
+# Cria um botão para enviar
+submit_button = ttk.Button(frame, text="Enviar", command=submit_button_clicked, style="Black.TButton")
+submit_button.pack(pady=10)
+
+app.mainloop()
