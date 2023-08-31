@@ -1,88 +1,109 @@
 from selenium import webdriver
-from bs4 import BeautifulSoup
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.support import expected_conditions as EC
+from openpyxl import Workbook, load_workbook
+from openpyxl.worksheet.hyperlink import Hyperlink
+from bs4 import BeautifulSoup
 import time
 
-# Deixar em background
-chrome_options = Options()
-chrome_options.add_argument('--headless')
-chrome_options.add_argument('--disable-gpu')
-chrome_options.add_experimental_option("excludeSwitches", ["enable-logging"])
+def initialize_driver():
+    chrome_options = Options()
+    chrome_options.add_argument('--headless')
+    chrome_options.add_argument('--disable-gpu')
+    chrome_options.add_experimental_option("excludeSwitches", ["enable-logging"])
+    return webdriver.Chrome(options=chrome_options)
 
-response = 's'
-while(response == 's'):
-    print('Digite a URL do processo:')
-    # Inicialize o driver do navegador (Chrome)
-    driver = webdriver.Chrome(options=chrome_options)
-
-    url = input()
+def get_page_content(driver, url):
     driver.get(url)
-
-    # Aguarda um tempo para o conteúdo ser carregado
     driver.implicitly_wait(10)
-
     time.sleep(2)
+    return driver.page_source
 
-    content = driver.page_source
+def extract_process_info(content):
     soup = BeautifulSoup(content, 'html.parser')
-
     titulo_elements = soup.find_all('div', class_='v-toolbar__title')
-
     for titulo_element in titulo_elements:
         titulo_text = titulo_element.get_text(strip=True)
-
     titulo = titulo_element.get_text()
-
     linhas = [linha.strip() for linha in titulo.split('\n') if linha.strip()]
-
     if len(linhas) >= 2:
         tipo_documento = linhas[0]
         numero_processo = linhas[1]
+        return tipo_documento, numero_processo
+    return None, None
 
-    wait = WebDriverWait(driver, 10)
+def extract_textarea_value(driver, css_selector):
+    textarea_element = WebDriverWait(driver, 10).until(EC.visibility_of_element_located((By.CSS_SELECTOR, css_selector)))
+    return textarea_element.get_attribute('value')
 
-    textarea_interested = wait.until(EC.visibility_of_element_located((By.CSS_SELECTOR, "textarea[aria-label='Interessado']")))
-    interessado_text = textarea_interested.get_attribute('value')
+def main():
+    response = 's'
+    while response == 's':
+        print('Digite a URL do processo:')
+        url = input()
 
-    textarea_summary = wait.until(EC.visibility_of_element_located((By.CSS_SELECTOR, "textarea[aria-label='Resumo']")))
-    resumo_text = textarea_summary.get_attribute('value')
+        # Abre a página do processo em background
+        driver = initialize_driver()
+        content = get_page_content(driver, url)
+        tipo_documento, numero_processo = extract_process_info(content)
 
-    driver.quit()
+        interessado_text = extract_textarea_value(driver, "textarea[aria-label='Interessado']")
+        resumo_text = extract_textarea_value(driver, "textarea[aria-label='Resumo']")
 
-    # Inicializa a segunda página (Chrome)
-    driver = webdriver.Chrome(options=chrome_options)
+        # Fecha a página
+        driver.quit()
 
-    url_tramitacoes = url+'tramitacoes'
-    driver.get(url_tramitacoes)
+        # Abre a página e tramitações do processo
+        driver = initialize_driver()
+        url_tramitacoes = url + 'tramitacoes'
+        content = get_page_content(driver, url_tramitacoes)
 
-    # Aguarda um tempo para o conteúdo ser carregado
-    driver.implicitly_wait(10)
+        # Clina no elemento da página para que o conteúdo do processo apareça
+        tr_element = driver.find_element(By.CLASS_NAME, 'pointer')
+        tr_element.click()
 
-    content = driver.page_source
+        despacho_text = extract_textarea_value(driver, "textarea[aria-label='Despacho']")
 
-    # Localiza o elemento <tr class="pointer"> e clica nele
-    tr_element = driver.find_element(By.CLASS_NAME, 'pointer')
-    tr_element.click()
+        # Fecha a página
+        driver.quit()
 
-    wait = WebDriverWait(driver, 10)
-    textarea_despatch = wait.until(EC.visibility_of_element_located((By.CSS_SELECTOR, "textarea[aria-label='Despacho']")))
-    despacho_text = textarea_despatch.get_attribute('value')
+        despacho = despacho_text.split('\n\n')[0]
 
-    driver.quit()
+        dados = [
+            {
+                "Tipo de documento": tipo_documento,
+                "Número do processo": numero_processo,
+                "Interessado": interessado_text,
+                "Resumo": resumo_text,
+                "Despacho": despacho
+            }
+        ]
 
-    partes = despacho_text.split('\n\n')
-    despacho = partes[0]
+        file_name = "processos-lepisma.xlsx"
 
-    print('')
-    print('Tipo de documento:', tipo_documento)
-    print('Número do processo:', numero_processo)
-    print('Interessado:', interessado_text)
-    print('Resumo:', resumo_text)
-    print('Despacho:', despacho)
-    print('')
+        try:
+            workbook = load_workbook(file_name)
+            sheet = workbook.active
+        except FileNotFoundError:
+            workbook = Workbook()
+            sheet = workbook.active
+            sheet.append(["Tipo de documento", "Número do processo", "Interessado", "Resumo", "Despacho"])
 
-    print('Deseja continuar? (s/n)')
-    response = input()
+        for dado in dados:
+            hyperlink = Hyperlink(ref=f"A{sheet.max_row + 1}", target=url)
+            sheet.cell(row=sheet.max_row + 1, column=1, value=dado["Tipo de documento"]).hyperlink = hyperlink
+            sheet.cell(row=sheet.max_row, column=2, value=dado["Número do processo"])
+            sheet.cell(row=sheet.max_row, column=3, value=dado["Interessado"])
+            sheet.cell(row=sheet.max_row, column=4, value=dado["Resumo"])
+            sheet.cell(row=sheet.max_row, column=5, value=dado["Despacho"])
+
+        workbook.save(filename=file_name)
+
+        print('Dados processados.')
+        print('Deseja continuar? (s/n)')
+        response = input()
+
+if __name__ == "__main__":
+    main()
