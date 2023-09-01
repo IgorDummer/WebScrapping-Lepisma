@@ -60,7 +60,7 @@ def submit_button_clicked():
         messagebox.showerror("Erro", "Por favor, insira a URL do processo.")
         return
     elif not (is_valid_url(url)):
-        messagebox.showerror("Erro", "A Url está errada.")
+        messagebox.showerror("Erro", "A url está errada.")
         return
 
     driver = initialize_driver()
@@ -116,10 +116,17 @@ def submit_button_clicked():
         sheet.cell(row=sheet.max_row, column=4, value=dado["Resumo"])
         sheet.cell(row=sheet.max_row, column=5, value=dado["Despacho"])
 
-    workbook.save(filename=file_name)
-
+    try:
+        workbook.save(filename=file_name)
+    except PermissionError:
+        messagebox.showerror("Erro", "Feche o arquivo excel e tente novamente")
+        return
+        
     url_entry.delete(0, tk.END)
-    messagebox.showinfo("Sucesso", "Dados processados com sucesso.")
+
+    id_url = r"/(\d+)/"
+    id = re.search(id_url, url).group(1)
+    messagebox.showinfo("Sucesso", f"Dados do processo {id} foram obtidos com sucesso")
 
 
 app = tk.Tk()
