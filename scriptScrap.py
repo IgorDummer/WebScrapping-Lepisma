@@ -18,8 +18,9 @@ from openpyxl.worksheet.hyperlink import Hyperlink
 from bs4 import BeautifulSoup
 import time
 import re
-import threading  # Importe a biblioteca threading
+import threading
 
+# Inicializa o Chrome em segundo plano, para obter os dados
 def initialize_driver():
     chrome_options = Options()
     chrome_options.add_argument('--headless')
@@ -27,12 +28,14 @@ def initialize_driver():
     chrome_options.add_experimental_option("excludeSwitches", ["enable-logging"])
     return webdriver.Chrome(options=chrome_options)
 
+# Obtem o conteúdo da url especificada
 def get_page_content(driver, url):
     driver.get(url)
     driver.implicitly_wait(10)
     time.sleep(2)
     return driver.page_source
 
+# Obtem o tipo de documento e o número do processo
 def extract_process_info(content):
     soup = BeautifulSoup(content, 'html.parser')
     titulo_elements = soup.find_all('div', class_='v-toolbar__title')
@@ -46,14 +49,17 @@ def extract_process_info(content):
         return tipo_documento, numero_processo
     return None, None
 
+# Obtem o conteúdo dos textarea
 def extract_textarea_value(driver, css_selector):
     textarea_element = WebDriverWait(driver, 10).until(EC.visibility_of_element_located((By.CSS_SELECTOR, css_selector)))
     return textarea_element.get_attribute('value')
 
+# Verifica se a url é valida, pertencente a um documento do lepisma
 def is_valid_url(url):
     pattern = r'https://protocolo\.ufes\.br/#/documentos/\d+/'
     return re.match(pattern, url) is not None
 
+# Faz todo o processamento dos dados
 def process_data():
     url = url_entry.get()
 
@@ -106,13 +112,16 @@ def process_data():
         file_name = "processos-lepisma.xlsx"
 
         try:
+            # Se existir o arquivo xlsx, abre ele
             workbook = load_workbook(file_name)
             sheet = workbook.active
         except FileNotFoundError:
+            # Caso contrário, cria um novo arquivo
             workbook = Workbook()
             sheet = workbook.active
             sheet.append(["Tipo de documento", "Número do processo", "Interessado", "Resumo", "Despacho"])
 
+        # Aloca os dados nas colunas da tabela
         for dado in dados:
             hyperlink = Hyperlink(ref=f"A{sheet.max_row + 1}", target=url)
             sheet.cell(row=sheet.max_row + 1, column=1, value=dado["Tipo de documento"]).hyperlink = hyperlink
@@ -123,6 +132,7 @@ def process_data():
 
         loading_label.config(text="")
 
+        # Se não salvar, é porque o arquivo está aberto
         try:
             workbook.save(filename=file_name)
         except PermissionError:
@@ -137,17 +147,18 @@ def process_data():
     except Exception as e:
         messagebox.showerror("Erro", f"Ocorreu um erro: {str(e)}")
 
-# Função para iniciar o processamento em segundo plano
+# Utiliza thread para processar os dados em segundo plano
 def submit_button_clicked():
-    # Crie uma thread para processar os dados
     processing_thread = threading.Thread(target=process_data)
     processing_thread.start()
 
 app = tk.Tk()
 app.title("Coletor de Dados")
 
-# Ajusta o tamanho da janela
-app.geometry("300x200")  # Largura x Altura
+# -- Configurações da interface visual --
+
+# Tamanho da janela
+app.geometry("300x200")
 
 # Centraliza a janela na tela
 app.update_idletasks()
@@ -163,7 +174,7 @@ frame.pack(expand=True)
 
 # Mensagem de Carregamento
 loading_label = tk.Label(app, text="", font=("Arial", 12))
-loading_label.pack(pady=10)
+loading_label.pack(pady=15)
 
 # Cria um campo de entrada para a URL
 url_label = tk.Label(frame, text="URL do Processo:")
@@ -177,6 +188,6 @@ style.configure("Black.TButton", background="black")
 
 # Cria um botão para enviar
 submit_button = ttk.Button(frame, text="Enviar", command=submit_button_clicked, style="Black.TButton")
-submit_button.pack(pady=10)
+submit_button.pack(pady=5)
 
 app.mainloop()
