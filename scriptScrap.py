@@ -18,6 +18,7 @@ from openpyxl.worksheet.hyperlink import Hyperlink
 from bs4 import BeautifulSoup
 import time
 import re
+import threading  # Importe a biblioteca threading
 
 def initialize_driver():
     chrome_options = Options()
@@ -53,7 +54,7 @@ def is_valid_url(url):
     pattern = r'https://protocolo\.ufes\.br/#/documentos/\d+/'
     return re.match(pattern, url) is not None
 
-def submit_button_clicked():
+def process_data():
     url = url_entry.get()
 
     if not url:
@@ -62,72 +63,85 @@ def submit_button_clicked():
     elif not (is_valid_url(url)):
         messagebox.showerror("Erro", "A url está errada.")
         return
-
-    driver = initialize_driver()
-    content = get_page_content(driver, url)
-    tipo_documento, numero_processo = extract_process_info(content)
-
-    interessado_text = extract_textarea_value(driver, "textarea[aria-label='Interessado']")
-    resumo_text = extract_textarea_value(driver, "textarea[aria-label='Resumo']")
-
-    driver.quit()
-
-    # Abre a página e tramitações do processo
-    driver = initialize_driver()
-    url_tramitacoes = url + 'tramitacoes'
-    content = get_page_content(driver, url_tramitacoes)
-
-    # Clina no elemento da página para que o conteúdo do processo apareça
-    tr_element = driver.find_element(By.CLASS_NAME, 'pointer')
-    tr_element.click()
-
-    despacho_text = extract_textarea_value(driver, "textarea[aria-label='Despacho']")
-
-    # Fecha a página
-    driver.quit()
-
-    despacho = despacho_text.split('\n\n')[0]
-
-    dados = [
-        {
-            "Tipo de documento": tipo_documento,
-            "Número do processo": numero_processo,
-            "Interessado": interessado_text,
-            "Resumo": resumo_text,
-            "Despacho": despacho
-        }
-    ]
-
-    file_name = "processos-lepisma.xlsx"
+    
+    # Atualize a mensagem de carregamento na interface
+    loading_label.config(text="Carregando dados...")
 
     try:
-        workbook = load_workbook(file_name)
-        sheet = workbook.active
-    except FileNotFoundError:
-        workbook = Workbook()
-        sheet = workbook.active
-        sheet.append(["Tipo de documento", "Número do processo", "Interessado", "Resumo", "Despacho"])
+        driver = initialize_driver()
+        content = get_page_content(driver, url)
+        tipo_documento, numero_processo = extract_process_info(content)
 
-    for dado in dados:
-        hyperlink = Hyperlink(ref=f"A{sheet.max_row + 1}", target=url)
-        sheet.cell(row=sheet.max_row + 1, column=1, value=dado["Tipo de documento"]).hyperlink = hyperlink
-        sheet.cell(row=sheet.max_row, column=2, value=dado["Número do processo"])
-        sheet.cell(row=sheet.max_row, column=3, value=dado["Interessado"])
-        sheet.cell(row=sheet.max_row, column=4, value=dado["Resumo"])
-        sheet.cell(row=sheet.max_row, column=5, value=dado["Despacho"])
+        interessado_text = extract_textarea_value(driver, "textarea[aria-label='Interessado']")
+        resumo_text = extract_textarea_value(driver, "textarea[aria-label='Resumo']")
 
-    try:
-        workbook.save(filename=file_name)
-    except PermissionError:
-        messagebox.showerror("Erro", "Feche o arquivo excel e tente novamente")
-        return
-        
-    url_entry.delete(0, tk.END)
+        driver.quit()
 
-    id_url = r"/(\d+)/"
-    id = re.search(id_url, url).group(1)
-    messagebox.showinfo("Sucesso", f"Dados do processo {id} foram obtidos com sucesso")
+        # Abre a página e tramitações do processo
+        driver = initialize_driver()
+        url_tramitacoes = url + 'tramitacoes'
+        content = get_page_content(driver, url_tramitacoes)
 
+        # Clina no elemento da página para que o conteúdo do processo apareça
+        tr_element = driver.find_element(By.CLASS_NAME, 'pointer')
+        tr_element.click()
+
+        despacho_text = extract_textarea_value(driver, "textarea[aria-label='Despacho']")
+
+        # Fecha a página
+        driver.quit()
+
+        despacho = despacho_text.split('\n\n')[0]
+
+        dados = [
+            {
+                "Tipo de documento": tipo_documento,
+                "Número do processo": numero_processo,
+                "Interessado": interessado_text,
+                "Resumo": resumo_text,
+                "Despacho": despacho
+            }
+        ]
+
+        file_name = "processos-lepisma.xlsx"
+
+        try:
+            workbook = load_workbook(file_name)
+            sheet = workbook.active
+        except FileNotFoundError:
+            workbook = Workbook()
+            sheet = workbook.active
+            sheet.append(["Tipo de documento", "Número do processo", "Interessado", "Resumo", "Despacho"])
+
+        for dado in dados:
+            hyperlink = Hyperlink(ref=f"A{sheet.max_row + 1}", target=url)
+            sheet.cell(row=sheet.max_row + 1, column=1, value=dado["Tipo de documento"]).hyperlink = hyperlink
+            sheet.cell(row=sheet.max_row, column=2, value=dado["Número do processo"])
+            sheet.cell(row=sheet.max_row, column=3, value=dado["Interessado"])
+            sheet.cell(row=sheet.max_row, column=4, value=dado["Resumo"])
+            sheet.cell(row=sheet.max_row, column=5, value=dado["Despacho"])
+
+        loading_label.config(text="")
+
+        try:
+            workbook.save(filename=file_name)
+        except PermissionError:
+            messagebox.showerror("Erro", "Feche o arquivo excel e tente novamente")
+            return
+
+        url_entry.delete(0, tk.END)
+
+        id_url = r"/(\d+)/"
+        id = re.search(id_url, url).group(1)
+        messagebox.showinfo("Sucesso", f"Dados do processo {id} foram obtidos com sucesso")
+    except Exception as e:
+        messagebox.showerror("Erro", f"Ocorreu um erro: {str(e)}")
+
+# Função para iniciar o processamento em segundo plano
+def submit_button_clicked():
+    # Crie uma thread para processar os dados
+    processing_thread = threading.Thread(target=process_data)
+    processing_thread.start()
 
 app = tk.Tk()
 app.title("Coletor de Dados")
@@ -146,6 +160,10 @@ app.geometry(f"{width}x{height}+{x}+{y}")
 # Cria um frame central para os widgets
 frame = tk.Frame(app)
 frame.pack(expand=True)
+
+# Mensagem de Carregamento
+loading_label = tk.Label(app, text="", font=("Arial", 12))
+loading_label.pack(pady=10)
 
 # Cria um campo de entrada para a URL
 url_label = tk.Label(frame, text="URL do Processo:")
